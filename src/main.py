@@ -48,6 +48,18 @@ def print_progress(message: str, is_state: bool = False):
 def print_section(title: str):
     print(f"\n{'='*20} {title} {'='*20}")
 
+def get_persona_summary(persona: Persona) -> str:
+    # ペルソナの背景から最初の文を抽出（通常、役割や立場を示す部分）
+    first_sentence = persona.background.split('.')[0]
+    return f"{persona.name}（{first_sentence}）"
+
+def get_analysis_summary(analysis: YWTAnalysis) -> str:
+    # 各セクションの最初の文を抽出してサマリーを作成
+    y_summary = analysis.y_done.split('.')[0]
+    w_summary = analysis.w_learned.split('.')[0]
+    t_summary = analysis.t_next.split('.')[0]
+    return f"Y: {y_summary}... W: {w_summary}... T: {t_summary}..."
+
 # ペルソナ生成クラス
 class PersonaGenerator:
     def __init__(self, llm: ChatOpenAI):
@@ -74,13 +86,12 @@ class PersonaGenerator:
         # 生成されたテキストをペルソナオブジェクトに変換
         personas = []
         for i, persona_text in enumerate(personas_raw.split('\n\n')[:5]):
-            personas.append(
-                Persona(
-                    name=f"ペルソナ{i+1}",
-                    background=persona_text.strip()
-                )
+            persona = Persona(
+                name=f"ペルソナ{i+1}",
+                background=persona_text.strip()
             )
-            print_progress(f"ペルソナ{i+1}を生成しました")
+            print_progress(f"ペルソナ{i+1}を生成しました → {get_persona_summary(persona)}")
+            personas.append(persona)
         
         return personas
 
@@ -110,7 +121,7 @@ class YWTAnalyzer:
         
         chain = prompt | self.llm
         analysis = chain.invoke({"topic": topic})
-        print_progress(f"{persona.name}のYWT分析が完了しました")
+        print_progress(f"{persona.name}のYWT分析が完了しました → {get_analysis_summary(analysis)}")
         return analysis
 
 # 総合分析クラス
@@ -154,7 +165,14 @@ class SummaryAnalyzer:
             "topic": topic,
             "analyses": analyses_text
         })
+        
+        # 総合分析の主要ポイントを表示
         print_progress("総合分析が完了しました")
+        print_progress("主要な発見:")
+        print_progress(f"・やったこと(Y): {summary.y_summary.split('.')[0]}...")
+        print_progress(f"・わかったこと(W): {summary.w_summary.split('.')[0]}...")
+        print_progress(f"・つぎにやること(T): {summary.t_summary.split('.')[0]}...")
+        
         return summary
 
 # メインの分析エージェント
@@ -207,7 +225,7 @@ class MultiPersonaYWTAgent:
             print_section("ペルソナ分析フェーズ")
         
         current_persona = state.personas[state.current_persona_index]
-        print_progress(f"現在の分析対象: ペルソナ{state.current_persona_index + 1}", is_state=True)
+        print_progress(f"現在の分析対象: {get_persona_summary(current_persona)}", is_state=True)
         
         analysis = self.ywt_analyzer.analyze(state.topic, current_persona)
         
