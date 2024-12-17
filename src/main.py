@@ -20,6 +20,11 @@ class PersonaAnalysis(BaseModel):
     persona: Persona = Field(..., description="ペルソナ情報")
     analysis: YWTAnalysis = Field(..., description="YWT分析結果")
 
+class SummaryAnalysis(BaseModel):
+    y_summary: str = Field(..., description="やったこと(Y)の総合分析")
+    w_summary: str = Field(..., description="わかったこと(W)の総合分析")
+    t_summary: str = Field(..., description="つぎにやること(T)の総合分析")
+
 # ワークフローの状態を管理するクラス
 class AnalysisState(BaseModel):
     topic: str = Field(..., description="分析対象のトピック")
@@ -29,8 +34,19 @@ class AnalysisState(BaseModel):
     analyses: Annotated[list[PersonaAnalysis], operator.add] = Field(
         default_factory=list, description="各ペルソナのYWT分析結果"
     )
+    summary: SummaryAnalysis | None = Field(default=None, description="総合分析結果")
     current_persona_index: int = Field(default=0, description="現在処理中のペルソナのインデックス")
     is_complete: bool = Field(default=False, description="全ペルソナの分析が完了したかどうか")
+
+# ログ出力用の関数
+def print_progress(message: str, is_state: bool = False):
+    if is_state:
+        print("\n🔄 State:", message)
+    else:
+        print("📝", message)
+    
+def print_section(title: str):
+    print(f"\n{'='*20} {title} {'='*20}")
 
 # ペルソナ生成クラス
 class PersonaGenerator:
@@ -38,6 +54,8 @@ class PersonaGenerator:
         self.llm = llm
         
     def generate(self, topic: str) -> list[Persona]:
+        print_progress("ペルソナを生成中...")
+        
         prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
@@ -62,6 +80,8 @@ class PersonaGenerator:
                     background=persona_text.strip()
                 )
             )
+            print_progress(f"ペルソナ{i+1}を生成しました")
+        
         return personas
 
 # YWT分析クラス
@@ -70,6 +90,8 @@ class YWTAnalyzer:
         self.llm = llm.with_structured_output(YWTAnalysis)
         
     def analyze(self, topic: str, persona: Persona) -> YWTAnalysis:
+        print_progress(f"{persona.name}のYWT分析を実行中...")
+        
         prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
@@ -87,13 +109,60 @@ class YWTAnalyzer:
         ])
         
         chain = prompt | self.llm
-        return chain.invoke({"topic": topic})
+        analysis = chain.invoke({"topic": topic})
+        print_progress(f"{persona.name}のYWT分析が完了しました")
+        return analysis
+
+# 総合分析クラス
+class SummaryAnalyzer:
+    def __init__(self, llm: ChatOpenAI):
+        self.llm = llm.with_structured_output(SummaryAnalysis)
+    
+    def analyze(self, topic: str, analyses: list[PersonaAnalysis]) -> SummaryAnalysis:
+        print_progress("全ペルソナの分析結果を総合分析中...")
+        
+        # 各ペルソナの分析をまとめて文字列化
+        analyses_text = "\n\n".join([
+            f"=== {analysis.persona.name} ===\n"
+            f"背景: {analysis.persona.background}\n"
+            f"やったこと(Y): {analysis.analysis.y_done}\n"
+            f"わかったこと(W): {analysis.analysis.w_learned}\n"
+            f"つぎにやること(T): {analysis.analysis.t_next}"
+            for analysis in analyses
+        ])
+        
+        prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "あなたは複数の視点からの分析を総合して、より深い洞察を導き出す専門家です。"
+            ),
+            (
+                "human",
+                "以下のトピックに関する5つのペルソナの分析結果を総合的に分析し、"
+                "共通点や相違点、重要な示唆を導き出してください：\n\n"
+                "トピック: {topic}\n\n"
+                "各ペルソナの分析結果:\n{analyses}\n\n"
+                "YWTフレームワークの各観点で総合的な分析を行ってください：\n"
+                "1. やったこと(Y): 各ペルソナが実施した行動や経験の共通点・相違点\n"
+                "2. わかったこと(W): 得られた気づきや学びの総合的な示唆\n"
+                "3. つぎにやること(T): 様々な視点を統合した今後のアクションプラン"
+            )
+        ])
+        
+        chain = prompt | self.llm
+        summary = chain.invoke({
+            "topic": topic,
+            "analyses": analyses_text
+        })
+        print_progress("総合分析が完了しました")
+        return summary
 
 # メインの分析エージェント
 class MultiPersonaYWTAgent:
     def __init__(self, llm: ChatOpenAI):
         self.persona_generator = PersonaGenerator(llm)
         self.ywt_analyzer = YWTAnalyzer(llm)
+        self.summary_analyzer = SummaryAnalyzer(llm)
         self.graph = self._create_graph()
         
     def _create_graph(self) -> StateGraph:
@@ -104,6 +173,7 @@ class MultiPersonaYWTAgent:
         workflow.add_node("generate_personas", self._generate_personas)
         workflow.add_node("analyze_persona", self._analyze_persona)
         workflow.add_node("check_completion", self._check_completion)
+        workflow.add_node("create_summary", self._create_summary)
         
         # エントリーポイントの設定
         workflow.set_entry_point("generate_personas")
@@ -118,18 +188,27 @@ class MultiPersonaYWTAgent:
             self._should_continue_analysis,
             {
                 True: "analyze_persona",
-                False: END
+                False: "create_summary"
             }
         )
+        
+        workflow.add_edge("create_summary", END)
         
         return workflow.compile()
     
     def _generate_personas(self, state: AnalysisState) -> dict[str, Any]:
+        print_section("ペルソナ生成フェーズ")
+        print_progress(f"分析トピック: {state.topic}", is_state=True)
         personas = self.persona_generator.generate(state.topic)
         return {"personas": personas}
     
     def _analyze_persona(self, state: AnalysisState) -> dict[str, Any]:
+        if state.current_persona_index == 0:
+            print_section("ペルソナ分析フェーズ")
+        
         current_persona = state.personas[state.current_persona_index]
+        print_progress(f"現在の分析対象: ペルソナ{state.current_persona_index + 1}", is_state=True)
+        
         analysis = self.ywt_analyzer.analyze(state.topic, current_persona)
         
         return {
@@ -139,18 +218,30 @@ class MultiPersonaYWTAgent:
     
     def _check_completion(self, state: AnalysisState) -> dict[str, Any]:
         is_complete = state.current_persona_index >= len(state.personas)
+        if is_complete:
+            print_progress("全ペルソナの分析が完了しました", is_state=True)
         return {"is_complete": is_complete}
     
     def _should_continue_analysis(self, state: AnalysisState) -> bool:
         return not state.is_complete
     
-    def run(self, topic: str) -> list[PersonaAnalysis]:
+    def _create_summary(self, state: AnalysisState) -> dict[str, Any]:
+        print_section("総合分析フェーズ")
+        summary = self.summary_analyzer.analyze(state.topic, state.analyses)
+        return {"summary": summary}
+    
+    def run(self, topic: str) -> tuple[list[PersonaAnalysis], SummaryAnalysis]:
+        print_section("分析開始")
+        print_progress(f"トピック: {topic}")
+        
         # 初期状態の設定
         initial_state = AnalysisState(topic=topic)
         # グラフの実行
         final_state = self.graph.invoke(initial_state)
+        
+        print_section("分析完了")
         # 分析結果の取得
-        return final_state["analyses"]
+        return final_state["analyses"], final_state["summary"]
 
 def main():
     import argparse
@@ -175,9 +266,12 @@ def main():
     # 分析の実行
     llm = ChatOpenAI(model="gpt-4", temperature=0.0)
     agent = MultiPersonaYWTAgent(llm)
-    results = agent.run(args.topic)
+    results, summary = agent.run(args.topic)
     
     # 結果の表示
+    print_section("個別分析結果")
+    
+    # 個別の分析結果の表示
     for analysis in results:
         print(f"\n=== {analysis.persona.name} ===")
         print(f"背景: {analysis.persona.background}\n")
@@ -188,6 +282,16 @@ def main():
         print("\n【つぎにやること(T)】")
         print(analysis.analysis.t_next)
         print("\n" + "="*50)
+    
+    # 総合分析の表示
+    print_section("総合分析結果")
+    print("\n【やったことの総合分析(Y)】")
+    print(summary.y_summary)
+    print("\n【わかったことの総合分析(W)】")
+    print(summary.w_summary)
+    print("\n【つぎにやることの総合分析(T)】")
+    print(summary.t_summary)
+    print("\n" + "="*50)
 
 if __name__ == "__main__":
     main()
