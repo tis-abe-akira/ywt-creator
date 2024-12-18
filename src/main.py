@@ -100,7 +100,7 @@ class PersonaGenerator:
         personas_raw = chain.invoke({"topic": topic})
 
         personas = []
-        for i, persona_text in enumerate(personas_raw.split("\n\n")[:5]):
+        for i, persona_text in enumerate(personas_raw.split("\n\n")[:3]):
             persona = Persona(name=f"ペルソナ{i+1}", background=persona_text.strip())
             print_progress(
                 f"ペルソナ{i+1}を生成しました → {get_persona_summary(persona)}"
@@ -574,7 +574,7 @@ class MultiPersonaYWTAgent:
         # 初期状態の設定
         initial_state = AnalysisState(topic=topic)
         # グラフの実行
-        final_state = self.graph.invoke(initial_state)
+        final_state = self.graph.invoke(initial_state, {"recursion_limit": 100})
 
         print_section("分析完了")
         # 分析結果の取得
