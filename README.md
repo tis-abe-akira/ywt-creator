@@ -1,70 +1,67 @@
-# ywt-creator
+# 改善施策管理API
 
-複数のペルソナによるYWT分析を行うPythonプロジェクト
+改善施策の提案、評価、開発、リリースを管理するためのRESTful APIアプリケーションです。
 
-## プロジェクト構造
+## 概要
 
-```
-ywt-creator/
-  ├── src/
-  │   └── main.py      # メインのプログラムファイル
-  ├── .env             # 環境変数設定ファイル
-  ├── pyproject.toml   # プロジェクト設定ファイル
-  └── README.md        # プロジェクトの説明
-```
+このアプリケーションは以下の機能を提供します：
 
-## 必要なもの
+- 改善施策の管理 (`/initiatives`)
+- 用語の管理 (`/terms`)
+- 開発状況の管理 (`/development`)
+- リリース管理 (`/releases`)
 
-- Python 3.11以上
-- OpenAI APIキー
+## 必要要件
+
+- Python 3.x
+- 以下のPythonパッケージ:
+  - fastapi >= 0.104.1
+  - uvicorn >= 0.24.0
+  - sqlalchemy >= 2.0.23
+  - pydantic >= 2.5.2
+  - pytest >= 7.4.3
+  - httpx >= 0.25.2
+  - python-multipart >= 0.0.6
+  - python-jose[cryptography] >= 3.3.0
+  - passlib[bcrypt] >= 1.7.4
+  - python-dateutil >= 2.8.2
 
 ## セットアップ
 
-1. 仮想環境のアクティベート:
+1. 依存パッケージのインストール:
 ```bash
-source .venv/bin/activate
+pip install -r src/requirements.txt
 ```
 
-2. 依存関係のインストール:
+2. アプリケーションの実行:
 ```bash
-uv add pydantic langchain-core langchain-openai langgraph python-dotenv
+cd src
+python run.py
 ```
 
-3. OpenAI APIキーの設定:
-`.env`ファイルを作成し、あなたのAPIキーを設定してください：
-```
-OPENAI_API_KEY=your_api_key_here
-```
+アプリケーションは `http://0.0.0.0:8000` で起動します。
 
-## 使用方法
+## API ドキュメント
 
-以下のコマンドで、指定したトピックについてのYWT分析を実行できます：
+アプリケーション起動後、以下のURLでSwagger UIによるAPI仕様を確認できます：
+
+- Swagger UI: `http://0.0.0.0:8000/docs`
+- ReDoc: `http://0.0.0.0:8000/redoc`
+
+## エンドポイント一覧
+
+- `/`: ウェルカムメッセージ
+- `/initiatives`: 改善施策の管理
+- `/terms`: 用語の管理
+- `/development`: 開発状況の管理
+- `/releases`: リリース管理
+
+各エンドポイントの詳細な使用方法については、Swagger UIのドキュメントを参照してください。
+
+## テスト実行
+
+プロジェクトのテストを実行するには：
 
 ```bash
-uv run python src/main.py --topic "分析したいトピック"
-```
-
-例：
-```bash
-uv run python src/main.py --topic "プログラミング学習"
-```
-
-指示文章が長い場合には、ファイル `task.txt` に書いて、そのファイルを引数に指定する。
-
-```bash
-cat task.txt
-uv run python src/main.py --topic "$(cat task.txt)"
-```
-
-## 機能
-
-- 指定したトピックに対して5つの異なるペルソナを自動生成
-- 各ペルソナの視点でYWT（やったこと、わかったこと、つぎにやること）分析を実行
-- 構造化されたデータモデルによる分析結果の整理
-- LangGraphを使用した効率的なワークフロー管理
-
-## 開発環境
-
-- Python 3.11.6
-- uv 0.4.30
-- GPT-4 (OpenAI API)
+cd src
+pytest
